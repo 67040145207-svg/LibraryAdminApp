@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="RoomReservation.Contracts/RoomReservation.Contracts.csproj" />
+  <Project Path="RoomReservation.Web/RoomReservation.Web.csproj" />
+  <Project Path="LibraryAdminApp/LibraryAdminApp.csproj" />
+</Solution>

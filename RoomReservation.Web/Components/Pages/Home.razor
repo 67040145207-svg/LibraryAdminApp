@@ -1,0 +1,760 @@
+@page "/"
+@implements IDisposable
+@inject ReservationEngineService Engine
+
+<div class="min-h-screen flex flex-col bg-slate-50">
+    <!-- Top Header -->
+    <header class="bg-gradient-to-r from-emerald-900 via-emerald-800 to-teal-900 text-white shadow-lg">
+        <div class="max-w-7xl mx-auto px-4 py-4 flex flex-wrap items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <div class="w-11 h-11 rounded-xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center text-xl font-bold">
+                    📚
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold tracking-tight">ระบบจองห้องบริการส่วนกลางและห้องสมุด (สำหรับนักศึกษาและบุคลากร)</h1>
+                    <p class="text-xs text-emerald-200">
+                        เปิดบริการ 09:00 – 17:00 น. • ห้องขนาดกลาง 3 ห้อง (ขั้นต่ำ 5 คน) • ห้องขนาดใหญ่ 1 ห้อง (ขั้นต่ำ 7 คน) • ฐานข้อมูล MySQL (WAMP)
+                    </p>
+                </div>
+            </div>
+
+            @if (currentSession != null)
+            {
+                <!-- แสดงข้อมูลผู้ใช้งานที่ Login จริงแล้ว + โควตารายวัน + ปุ่มออกจากระบบ -->
+                <div class="flex flex-wrap items-center gap-4 bg-emerald-950/60 border border-emerald-700/60 rounded-xl px-4 py-2">
+                    <div class="text-xs">
+                        <span class="text-emerald-300 block">ผู้ใช้งานที่เข้าสู่ระบบ:</span>
+                        <span class="font-bold text-sm text-white">@currentSession.FullName (@currentSession.StudentOrStaffId)</span>
+                        <span class="ml-1 px-2 py-0.5 rounded bg-emerald-700 text-[11px]">@currentSession.Role</span>
+                    </div>
+
+                    @if (currentQuota != null)
+                    {
+                        <div class="border-l border-emerald-700 pl-3 text-xs">
+                            @if (currentQuota.IsSuspended)
+                            {
+                                <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-600 text-white font-semibold">
+                                    ⛔ ถูกระงับสิทธิ์ถึง @currentQuota.SuspendedUntil?.ToString("dd/MM HH:mm")
+                                </span>
+                            }
+                            else
+                            {
+                                <div class="flex items-center gap-2">
+                                    <span class="text-emerald-200">โควตาวันนี้:</span>
+                                    <span class="font-bold text-white">เหลือ @currentQuota.RemainingMinutesToday นาที</span>
+                                    <span class="text-emerald-300">(ใช้ไป @currentQuota.UsedMinutesToday/@currentQuota.DailyQuotaMinutes นาที)</span>
+                                </div>
+                                <div class="w-40 bg-emerald-950 h-2 rounded-full mt-1 overflow-hidden">
+                                    @{
+                                        var pct = Math.Min(100, (int)((double)currentQuota.UsedMinutesToday / Math.Max(1, currentQuota.DailyQuotaMinutes) * 100));
+                                    }
+                                    <div class="bg-emerald-400 h-full transition-all" style="width: @(pct)%"></div>
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    <button @onclick="HandleLogout"
+                            class="bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition">
+                        🚪 ออกจากระบบ
+                    </button>
+                </div>
+            }
+        </div>
+
+        @if (currentSession != null)
+        {
+            <!-- Navigation Tabs สำหรับนักศึกษา/บุคลากร -->
+            <div class="max-w-7xl mx-auto px-4 flex gap-2 overflow-x-auto border-t border-emerald-800/80 pt-2">
+                <button @onclick='() => activeTab = "timeline"'
+                        class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition @(activeTab == "timeline" ? "bg-slate-50 text-emerald-900" : "text-emerald-100 hover:bg-emerald-800/60")">
+                    🗓️ 1. ตารางเวลา & จองห้อง (09:00 – 17:00 น.)
+                </button>
+                <button @onclick='() => activeTab = "mybookings"'
+                        class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition @(activeTab == "mybookings" ? "bg-slate-50 text-emerald-900" : "text-emerald-100 hover:bg-emerald-800/60")">
+                    🎟️ 2. รายการจองของฉัน & รหัสติดต่อห้อง Admin (@myActiveBookingsCount)
+                </button>
+                <button @onclick='() => activeTab = "report"'
+                        class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition @(activeTab == "report" ? "bg-slate-50 text-emerald-900" : "text-emerald-100 hover:bg-emerald-800/60")">
+                    🛠️ 3. แจ้งอุปกรณ์ชำรุดในห้อง
+                </button>
+            </div>
+        }
+    </header>
+
+    <!-- Alert Banner -->
+    @if (!string.IsNullOrEmpty(feedbackMessage))
+    {
+        <div class="max-w-7xl mx-auto w-full px-4 mt-4">
+            <div class="flex items-center justify-between px-4 py-3 rounded-xl border shadow-sm @(feedbackSuccess ? "bg-emerald-50 border-emerald-300 text-emerald-900" : "bg-rose-50 border-rose-300 text-rose-900")">
+                <div class="flex items-center gap-2 text-sm font-medium">
+                    <span>@(feedbackSuccess ? "✅" : "⚠️")</span>
+                    <span>@feedbackMessage</span>
+                </div>
+                <button @onclick="() => feedbackMessage = null" class="text-xs font-bold px-2 py-1 rounded hover:bg-black/5">ปิด</button>
+            </div>
+        </div>
+    }
+
+    <!-- Main Content Area -->
+    <main class="max-w-7xl mx-auto w-full px-4 py-6 flex-1">
+        @if (currentSession == null)
+        {
+            <!-- ==================== หน้าฟอร์ม LOGIN & REGISTER จริง (เชื่อมต่อ MySQL `users`) ==================== -->
+            <div class="max-w-md mx-auto mt-8 bg-white rounded-2xl shadow-md border border-slate-200 overflow-hidden">
+                <div class="bg-emerald-900 text-white px-6 py-5">
+                    <h2 class="text-lg font-bold">
+                        @(isRegisterMode ? "📝 สมัครสมาชิกใหม่ (ลงทะเบียนผู้ใช้งาน)" : "🔐 เข้าสู่ระบบจองห้องสมุด")
+                    </h2>
+                    <p class="text-xs text-emerald-200 mt-1">
+                        @(isRegisterMode
+                            ? "สร้างบัญชีผู้ใช้งานใหม่ลงในฐานข้อมูล MySQL (WAMP)"
+                            : "กรอกรหัสนักศึกษา/รหัสบุคลากร และรหัสผ่านเพื่อเข้าใช้งาน")
+                    </p>
+                </div>
+
+                <div class="p-6 space-y-4 text-sm">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">รหัสผู้ใช้งาน (รหัสนักศึกษา / รหัสบุคลากร)</label>
+                        <input type="text" @bind="loginUsername"
+                               placeholder="เช่น 6610400001 หรือรหัสของคุณ"
+                               class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 focus:outline-none focus:border-emerald-600" />
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">รหัสผ่าน (Password)</label>
+                        <input type="password" @bind="loginPassword"
+                               placeholder="กรอกรหัสผ่าน"
+                               class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 focus:outline-none focus:border-emerald-600" />
+                    </div>
+
+                    @if (isRegisterMode)
+                    {
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 mb-1">ชื่อ - นามสกุล</label>
+                            <input type="text" @bind="registerFullName"
+                                   placeholder="เช่น สมชาย ใจดี"
+                                   class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 focus:outline-none focus:border-emerald-600" />
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 mb-1">อีเมล</label>
+                            <input type="email" @bind="registerEmail"
+                                   placeholder="เช่น somchai@ku.th"
+                                   class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 focus:outline-none focus:border-emerald-600" />
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 mb-1">ประเภทผู้ใช้งาน</label>
+                            <select @bind="registerRole" class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5">
+                                <option value="@UserRole.Student">นักศึกษา (Student)</option>
+                                <option value="@UserRole.Staff">บุคลากร/อาจารย์ (Staff)</option>
+                            </select>
+                        </div>
+
+                        <button @onclick="SubmitRegister"
+                                class="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-bold py-2.5 px-4 rounded-xl shadow transition">
+                            ยืนยันสมัครสมาชิก & เข้าสู่ระบบ
+                        </button>
+                    }
+                    else
+                    {
+                        <button @onclick="SubmitLogin"
+                                class="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-bold py-2.5 px-4 rounded-xl shadow transition">
+                            เข้าสู่ระบบ (Login)
+                        </button>
+                    }
+
+                    <div class="pt-3 border-t border-slate-100 text-center">
+                        @if (isRegisterMode)
+                        {
+                            <button type="button" @onclick="() => { isRegisterMode = false; feedbackMessage = null; }"
+                                    class="text-xs text-emerald-700 font-semibold hover:underline">
+                                มีบัญชีอยู่แล้ว? กลับไปหน้าเข้าสู่ระบบ
+                            </button>
+                        }
+                        else
+                        {
+                            <button type="button" @onclick="() => { isRegisterMode = true; feedbackMessage = null; }"
+                                    class="text-xs text-emerald-700 font-semibold hover:underline">
+                                ยังไม่มีบัญชีผู้ใช้งาน? กดสมัครสมาชิกใหม่ที่นี่
+                            </button>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="space-y-6">
+                <!-- ขั้นตอนการเข้าใช้งานห้อง -->
+                <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4 text-xs text-amber-900">
+                    <div class="flex items-center gap-3">
+                        <span class="text-2xl">🔑</span>
+                        <div>
+                            <strong class="text-sm block">ขั้นตอนการจองและติดต่อเช็คอินที่ห้อง Admin (เวลาทำการ 09:00 – 17:00 น.)</strong>
+                            <span>
+                                1) เลือกห้องและระบุ <strong>จำนวนผู้เข้าใช้งาน (เป็นตัวเลข)</strong> (ห้องขนาดกลาง 602, 603, 604 ขั้นต่ำ 5 คน / ห้องขนาดใหญ่ 601 ขั้นต่ำ 7 คน) →
+                                2) ผู้จองหลักกดยืนยันการจองเพียงคนเดียว →
+                                3) นำ <strong>รหัสการจอง (Booking No.) หรือรหัส PIN</strong> ไปติดต่อเช็คอินที่ <strong>ห้อง Admin</strong> (สามารถเข้ามาเช็คอินล่วงหน้าได้ตั้งแต่ 30 นาที ถึง 1 ชั่วโมง ก่อนถึงเวลาจอง และไม่เกิน 15 นาทีหลังเริ่มเวลาจอง) เพื่อให้เจ้าหน้าที่เปิดประตูห้องให้
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                @if (activeTab == "timeline")
+                {
+                    <!-- Filter Bar -->
+                    <section class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">วันที่ต้องการใช้งาน</label>
+                                <input type="date" value="@selectedDate.ToString("yyyy-MM-dd")"
+                                       @onchange="OnDateChanged"
+                                       class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">ขนาดห้องบริการ (ทั้งหมด 4 ห้อง)</label>
+                                <select @bind="filterRoomType" @bind:after="LoadAllData"
+                                        class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                                    <option value="">ทั้งหมด 4 ห้อง (ขนาดกลาง 3 ห้อง / ขนาดใหญ่ 1 ห้อง)</option>
+                                    <option value="Medium">ห้องขนาดกลาง (3 ห้อง • ขั้นต่ำ 5 คน)</option>
+                                    <option value="Large">ห้องขนาดใหญ่ (1 ห้อง • ขั้นต่ำ 7 คน)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">อุปกรณ์ภายในห้อง (Equipment)</label>
+                                <select @bind="filterEquipment" @bind:after="LoadAllData"
+                                        class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                                    <option value="">ทุกอุปกรณ์</option>
+                                    <option value="SMART_TV">📺 Smart TV / Smart Board</option>
+                                    <option value="WHITEBOARD">📝 กระดานไวท์บอร์ด (Whiteboard)</option>
+                                    <option value="POWER_PLUG">🔌 ปลั๊กไฟ & USB-C</option>
+                                    <option value="PROJECTOR">📽️ เลเซอร์โปรเจคเตอร์ 4K</option>
+                                </select>
+                            </div>
+                            <div class="flex gap-2">
+                                <button @onclick="ResetFilters"
+                                        class="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-sm py-2 px-3 rounded-lg transition">
+                                    ล้างตัวกรอง
+                                </button>
+                            </div>
+                        </div>
+                    </section>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <!-- Left 2 Cols: Real-time 4 Rooms Slot Timeline (09:00 - 17:00) -->
+                        <div class="lg:col-span-2 space-y-4">
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                                <h2 class="text-lg font-bold text-slate-800">ตารางสถานะห้องทั้ง 4 ห้อง (เวลาทำการ 09:00 – 17:00 น.)</h2>
+                                <div class="flex items-center gap-3 text-xs font-medium">
+                                    <span class="inline-flex items-center gap-1"><span class="w-3 h-3 rounded bg-emerald-500 inline-block"></span> ว่าง (คลิกจองได้)</span>
+                                    <span class="inline-flex items-center gap-1"><span class="w-3 h-3 rounded bg-amber-500 inline-block"></span> จองแล้ว (รอเช็คอินที่ห้อง Admin)</span>
+                                    <span class="inline-flex items-center gap-1"><span class="w-3 h-3 rounded bg-indigo-600 inline-block"></span> เช็คอินแล้ว (เปิดประตูห้องแล้ว)</span>
+                                </div>
+                            </div>
+
+                            @foreach (var room in rooms)
+                            {
+                                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 hover:border-emerald-400 transition">
+                                    <div class="flex flex-wrap items-start justify-between gap-2 mb-3">
+                                        <div>
+                                            <div class="flex flex-wrap items-center gap-2">
+                                                <span class="px-2.5 py-0.5 text-xs font-bold rounded-md @(room.RoomType == RoomType.Large ? "bg-purple-100 text-purple-800" : "bg-emerald-100 text-emerald-800")">
+                                                    @room.RoomCode
+                                                </span>
+                                                <h3 class="font-bold text-slate-900">@room.RoomName</h3>
+                                                <span class="text-xs px-2.5 py-0.5 rounded-full font-semibold @(room.RoomType == RoomType.Large ? "bg-purple-50 text-purple-700 border border-purple-200" : "bg-teal-50 text-teal-700 border border-teal-200")">
+                                                    @room.RoomTypeDisplay
+                                                </span>
+                                            </div>
+                                            <p class="text-xs text-slate-500 mt-1">
+                                                📍 @room.Building ชั้น @room.Floor • 👥 จำนวนผู้เข้าใช้งานที่กำหนด: <strong>ขั้นต่ำ @room.MinCapacity คน (สูงสุด @room.MaxCapacity คน)</strong> • ⏱️ สูงสุด @room.MaxBookingHours ชม./ครั้ง
+                                            </p>
+                                        </div>
+                                        <button @onclick="() => SelectRoomForBooking(room, null)"
+                                                class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-3 py-1.5 rounded-lg">
+                                            + เลือกจองห้องนี้
+                                        </button>
+                                    </div>
+
+                                    <!-- Equipment Badges -->
+                                    <div class="flex flex-wrap gap-1.5 mb-3">
+                                        @foreach (var eq in room.Equipments)
+                                        {
+                                            <span class="text-xs bg-slate-100 text-slate-700 px-2.5 py-0.5 rounded-full border border-slate-200">
+                                                🔧 @eq.Name (x@eq.Quantity)
+                                            </span>
+                                        }
+                                    </div>
+
+                                    <!-- 8 Hourly Slots Grid (09:00 - 17:00) -->
+                                    <div class="grid grid-cols-4 sm:grid-cols-8 gap-2">
+                                        @foreach (var slot in room.TodaySlots)
+                                        {
+                                            var isAvail = slot.SlotState == "Available";
+                                            var isOcc = slot.SlotState == "Occupied";
+                                            var slotCss = isAvail
+                                                ? "bg-emerald-50 hover:bg-emerald-500 hover:text-white text-emerald-900 border-emerald-300 cursor-pointer"
+                                                : isOcc
+                                                    ? "bg-indigo-600 text-white border-indigo-700"
+                                                    : "bg-amber-500 text-white border-amber-600";
+
+                                            <button type="button"
+                                                    disabled="@(!isAvail)"
+                                                    title="@(isAvail ? $"ว่าง เวลา {slot.TimeLabel} (คลิกเพื่อจอง)" : $"{slot.SlotState}: {slot.BookedByName} ({slot.Purpose})")"
+                                                    @onclick="() => SelectRoomForBooking(room, slot.StartTime.Hour)"
+                                                    class="border rounded-xl p-2 text-center transition flex flex-col items-center justify-center @slotCss">
+                                                <span class="text-xs font-bold">@slot.StartTime.ToString("HH:00")-@slot.EndTime.ToString("HH:00")</span>
+                                                <span class="text-[10px] opacity-90 truncate max-w-full mt-0.5">
+                                                    @(isAvail ? "ว่าง" : isOcc ? "เปิดห้องแล้ว" : "จองแล้ว")
+                                                </span>
+                                            </button>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+
+                        <!-- Right Col: Booking Creation Form (กรอกเฉพาะตัวเลขจำนวนคน ไม่ต้องกรอกรหัสเพื่อน) -->
+                        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 h-fit sticky top-4">
+                            <h2 class="text-base font-bold text-slate-900 mb-1">📝 แบบฟอร์มยืนยันการจองห้อง</h2>
+                            <p class="text-xs text-slate-500 mb-4">
+                                ผู้จองหลักยืนยันเพียงคนเดียว โดยระบุ <strong>จำนวนผู้เข้าใช้งาน (เป็นตัวเลข)</strong> ตามเกณฑ์ของห้อง
+                            </p>
+
+                            <div class="space-y-3.5 text-sm">
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-700 mb-1">เลือกห้องที่ต้องการจอง (มี 4 ห้อง)</label>
+                                    <select @bind="bookingFormRoomId" @bind:after="OnSelectedRoomChanged" class="w-full rounded-lg border border-slate-300 px-3 py-2">
+                                        @foreach (var r in rooms)
+                                        {
+                                            <option value="@r.Id">@r.RoomCode - @r.RoomName (ขั้นต่ำ @r.MinCapacity คน)</option>
+                                        }
+                                    </select>
+                                </div>
+
+                                @{
+                                    var selectedRoomObj = rooms.FirstOrDefault(r => r.Id == bookingFormRoomId);
+                                }
+                                @if (selectedRoomObj != null)
+                                {
+                                    <div class="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 space-y-1">
+                                        <div class="font-bold">เงื่อนไขของ @selectedRoomObj.RoomCode (@selectedRoomObj.RoomTypeDisplay):</div>
+                                        <div>• จำนวนผู้เข้าใช้งาน: <strong>ขั้นต่ำ @selectedRoomObj.MinCapacity คน – สูงสุด @selectedRoomObj.MaxCapacity คน</strong></div>
+                                        <div>• เวลาทำการ: <strong>09:00 – 17:00 น.</strong> (จองสูงสุด @selectedRoomObj.MaxBookingHours ชม./ครั้ง)</div>
+                                    </div>
+                                }
+
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-700 mb-1">
+                                        จำนวนผู้เข้าใช้งาน (คน) <span class="text-emerald-700">(ขั้นต่ำ @(selectedRoomObj?.MinCapacity ?? 5) คน)</span>
+                                    </label>
+                                    <input type="number"
+                                           min="1"
+                                           max="30"
+                                           @bind="bookingAttendeesCount"
+                                           class="w-full rounded-lg border border-slate-300 px-3 py-2 font-bold text-slate-900" />
+                                    <p class="text-[11px] text-slate-500 mt-0.5">
+                                        ผู้จองหลัก: <strong>@currentSession.FullName (@currentSession.StudentOrStaffId)</strong> (ยืนยันคนเดียว ไม่ต้องกรอกรหัสเพื่อน)
+                                    </p>
+                                </div>
+
+                                <div class="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label class="block text-xs font-semibold text-slate-700 mb-1">เวลาเริ่มต้น (09:00 - 16:00)</label>
+                                        <select @bind="bookingStartHour" class="w-full rounded-lg border border-slate-300 px-3 py-2">
+                                            @for (int h = 9; h <= 16; h++)
+                                            {
+                                                <option value="@h">@($"{h:00}:00 น.")</option>
+                                            }
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-semibold text-slate-700 mb-1">ระยะเวลา (ชั่วโมง)</label>
+                                        <select @bind="bookingDurationHours" class="w-full rounded-lg border border-slate-300 px-3 py-2">
+                                            <option value="1">1 ชั่วโมง</option>
+                                            <option value="2">2 ชั่วโมง</option>
+                                            <option value="3">3 ชั่วโมง (สูงสุด)</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-700 mb-1">วัตถุประสงค์การใช้งาน (Purpose)</label>
+                                    <input type="text" @bind="bookingPurpose"
+                                           placeholder="เช่น ประชุมกลุ่มทำโครงงาน / ติวสอบ"
+                                           class="w-full rounded-lg border border-slate-300 px-3 py-2" />
+                                </div>
+
+                                <button @onclick="SubmitCreateBooking"
+                                        class="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-bold py-2.5 px-4 rounded-xl shadow transition">
+                                    ยืนยันการจองห้อง
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                }
+                else if (activeTab == "mybookings")
+                {
+                    <!-- TAB 2: รายการจอง & ใบนำเช็คอินที่ห้อง Admin -->
+                    <div class="space-y-4">
+                        <div>
+                            <h2 class="text-lg font-bold text-slate-800">🎟️ รายการจองห้อง & รหัสสำหรับติดต่อเช็คอินที่ห้อง Admin</h2>
+                            <p class="text-xs text-slate-500">
+                                เมื่อถึงเวลาจอง กรุณานำ <strong>รหัสการจอง (Booking No.) หรือรหัส PIN 6 หลัก</strong> ไปแจ้งต่อเจ้าหน้าที่ที่ <strong>ห้อง Admin</strong> เพื่อเช็คอินและให้เจ้าหน้าที่ไปเปิดประตูห้องให้
+                            </p>
+                        </div>
+
+                        @foreach (var b in bookings)
+                        {
+                            <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3">
+                                <div class="flex flex-wrap items-start justify-between gap-4">
+                                    <div class="space-y-1">
+                                        <div class="flex flex-wrap items-center gap-2">
+                                            <span class="font-mono text-sm font-bold px-3 py-1 rounded-lg bg-emerald-900 text-white">@b.BookingNo</span>
+                                            <span class="font-bold text-base text-slate-900">@b.RoomCode — @b.RoomName</span>
+                                            <span class="inline-block text-xs font-bold px-3 py-1 rounded-full @GetStatusBadgeClass(b.Status)">
+                                                @b.StatusDisplay
+                                            </span>
+                                        </div>
+                                        <p class="text-xs text-slate-600">
+                                            🕒 เวลาที่จอง: <strong>@b.StartTime.ToString("dd/MM/yyyy HH:mm") – @b.EndTime.ToString("HH:mm") น.</strong>
+                                            • ผู้จองหลัก: <strong>@b.HostFullName (@b.HostStudentOrStaffId)</strong>
+                                            • 👥 จำนวนผู้เข้าใช้งาน: <strong>@b.ExpectedAttendees คน</strong> (ขั้นต่ำ @b.MinRequiredAttendees คน)
+                                        </p>
+                                        <p class="text-xs text-slate-500">📌 วัตถุประสงค์: @b.Purpose</p>
+                                    </div>
+
+                                    <!-- บัตรรหัสสำหรับแจ้งห้อง Admin -->
+                                    <div class="bg-emerald-50 border-2 border-emerald-500 rounded-xl px-4 py-2.5 text-center min-w-[240px]">
+                                        <div class="text-[11px] font-bold text-emerald-800 uppercase">รหัสสำหรับแจ้งที่ห้อง Admin เพื่อเปิดประตู</div>
+                                        <div class="text-2xl font-mono font-extrabold tracking-widest text-emerald-700 my-0.5">PIN: @b.CheckInPinCode</div>
+                                        <div class="text-[11px] text-emerald-900">
+                                            @(b.Status == BookingStatus.CheckedIn
+                                                ? $"✅ เช็คอินและเปิดประตูแล้วเมื่อ {b.CheckedInAt:HH:mm} น."
+                                                : $"⏳ เช็คอินล่วงหน้าได้ 30 นาที – 1 ชม. ({b.StartTime.AddHours(-1):HH:mm} – {b.StartTime.AddMinutes(15):HH:mm} น.)")
+                                        </div>
+                                    </div>
+                                </div>
+
+                                @if (b.Status == BookingStatus.Reserved &&
+                                     b.HostStudentOrStaffId.Equals(currentSession.StudentOrStaffId, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    <div class="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
+                                        <span class="text-slate-600">
+                                            👉 กรุณาเดินไปที่ <strong>ห้อง Admin</strong> และแจ้งรหัส <strong>@b.BookingNo</strong> (หรือ PIN <strong>@b.CheckInPinCode</strong>) เพื่อให้ Admin เช็คอินในระบบและไปเปิดประตูห้องให้
+                                        </span>
+                                        <button @onclick="() => CancelBooking(b.Id)"
+                                                class="text-xs text-rose-600 hover:underline font-semibold shrink-0 ml-4">
+                                            ยกเลิกการจองล่วงหน้า
+                                        </button>
+                                    </div>
+                                }
+
+                                @if (!string.IsNullOrEmpty(b.CancelReason))
+                                {
+                                    <div class="text-xs text-rose-700 bg-rose-50 px-3 py-1.5 rounded-lg border border-rose-200">
+                                        หมายเหตุ: @b.CancelReason
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+                else if (activeTab == "report")
+                {
+                    <!-- TAB 3: แจ้งซ่อมอุปกรณ์ชำรุดในห้อง -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
+                            <h3 class="font-bold text-slate-900 text-base">🛠️ แจ้งอุปกรณ์ชำรุดในห้องบริการ (บันทึกลงฐานข้อมูล MySQL)</h3>
+                            <p class="text-xs text-slate-500">หากพบอุปกรณ์ในห้องชำรุด สามารถแจ้งให้เจ้าหน้าที่ห้อง Admin เข้าตรวจสอบได้ทันที</p>
+
+                            <div class="space-y-3 text-sm">
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-700 mb-1">ห้องที่พบปัญหา</label>
+                                    <select @bind="newMaintRoomId" class="w-full border rounded-lg px-3 py-2">
+                                        @foreach (var r in rooms)
+                                        {
+                                            <option value="@r.Id">@r.RoomCode - @r.RoomName</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-700 mb-1">อุปกรณ์ที่ชำรุด</label>
+                                    <input @bind="newMaintEquip" placeholder="เช่น Smart TV / กระดานไวท์บอร์ด / ปลั๊กไฟ" class="w-full border rounded-lg px-3 py-2" />
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-700 mb-1">รายละเอียดอาการชำรุด</label>
+                                    <textarea rows="3" @bind="newMaintTitle" placeholder="อธิบายอาการที่พบเพื่อให้เจ้าหน้าที่ Admin เข้าแก้ไข" class="w-full border rounded-lg px-3 py-2"></textarea>
+                                </div>
+                                <button @onclick="SubmitMaintenanceReport"
+                                        class="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-bold py-2.5 px-4 rounded-xl shadow">
+                                    ส่งเรื่องแจ้งห้อง Admin
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3">
+                            <h3 class="font-bold text-slate-900 text-base">📋 สถานะการแจ้งซ่อมล่าสุด</h3>
+                            <div class="space-y-2 max-h-96 overflow-y-auto">
+                                @foreach (var m in maintenanceReports)
+                                {
+                                    <div class="p-3 rounded-xl border border-slate-200 flex items-center justify-between gap-2 text-xs">
+                                        <div>
+                                            <div class="font-bold text-slate-800">[@m.RoomCode] @m.EquipmentName — @m.Title</div>
+                                            <div class="text-slate-500">แจ้งโดย: @m.ReportedBy • เมื่อ @m.CreatedAt.ToString("dd/MM/yyyy HH:mm")</div>
+                                        </div>
+                                        <span class="px-2.5 py-1 rounded-full font-bold @(m.Status == MaintenanceStatus.Resolved ? "bg-emerald-100 text-emerald-800" : m.Status == MaintenanceStatus.InProgress ? "bg-amber-100 text-amber-800" : "bg-rose-100 text-rose-800")">
+                                            @m.Status
+                                        </span>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </main>
+</div>
+
+@code {
+    // Authentication State
+    private AuthSessionDto? currentSession;
+    private UserQuotaDto? currentQuota;
+    private bool isRegisterMode = false;
+    private string loginUsername = "";
+    private string loginPassword = "";
+    private string registerFullName = "";
+    private string registerEmail = "";
+    private UserRole registerRole = UserRole.Student;
+
+    // Navigation & Filters
+    private string activeTab = "timeline";
+    private DateTime selectedDate = DateTime.Today;
+    private string filterRoomType = "";
+    private string filterEquipment = "";
+
+    // Data lists from MySQL
+    private List<RoomDto> rooms = new();
+    private List<BookingDto> bookings = new();
+    private List<MaintenanceReportDto> maintenanceReports = new();
+
+    // Booking Form (เวลาเปิดบริการ 09:00 - 17:00 น., กรอกเฉพาะตัวเลขจำนวนคน)
+    private Guid bookingFormRoomId;
+    private int bookingAttendeesCount = 5;
+    private int bookingStartHour = Math.Clamp(DateTime.Now.Hour + 1, 9, 15);
+    private int bookingDurationHours = 2;
+    private string bookingPurpose = "ประชุมกลุ่มทำโครงงานและค้นคว้า";
+
+    // Maintenance
+    private Guid newMaintRoomId;
+    private string newMaintEquip = "Smart TV";
+    private string newMaintTitle = "สายสัญญาณ HDMI หลวม";
+
+    // Alert Banner
+    private string? feedbackMessage;
+    private bool feedbackSuccess = true;
+
+    private int myActiveBookingsCount => bookings.Count(b => b.Status == BookingStatus.Reserved);
+
+    protected override void OnInitialized()
+    {
+        Engine.OnStateChanged += HandleEngineStateChanged;
+        LoadAllData();
+    }
+
+    private void HandleEngineStateChanged()
+    {
+        InvokeAsync(() =>
+        {
+            LoadAllData();
+            StateHasChanged();
+        });
+    }
+
+    private void SubmitLogin()
+    {
+        var res = Engine.Login(new LoginRequest
+        {
+            Username = loginUsername,
+            Password = loginPassword
+        });
+
+        if (res.Success && res.Data != null)
+        {
+            currentSession = res.Data;
+            ShowFeedback(true, res.Message);
+            LoadAllData();
+        }
+        else
+        {
+            ShowFeedback(false, res.Message);
+        }
+    }
+
+    private void SubmitRegister()
+    {
+        var res = Engine.RegisterUser(new RegisterUserRequest
+        {
+            StudentOrStaffId = loginUsername,
+            Password = loginPassword,
+            FullName = registerFullName,
+            Email = registerEmail,
+            Role = registerRole
+        });
+
+        if (res.Success && res.Data != null)
+        {
+            currentSession = res.Data;
+            isRegisterMode = false;
+            ShowFeedback(true, "สมัครสมาชิกและเข้าสู่ระบบสำเร็จ!");
+            LoadAllData();
+        }
+        else
+        {
+            ShowFeedback(false, res.Message);
+        }
+    }
+
+    private void HandleLogout()
+    {
+        currentSession = null;
+        currentQuota = null;
+        loginPassword = "";
+        feedbackMessage = null;
+    }
+
+    private void LoadAllData()
+    {
+        RoomType? parsedType = Enum.TryParse<RoomType>(filterRoomType, true, out var rt) ? rt : null;
+        rooms = Engine.GetRooms(selectedDate, parsedType, null, filterEquipment);
+
+        if (rooms.Count > 0)
+        {
+            if (bookingFormRoomId == Guid.Empty || !rooms.Any(r => r.Id == bookingFormRoomId))
+            {
+                bookingFormRoomId = rooms[0].Id;
+                bookingAttendeesCount = rooms[0].MinCapacity;
+            }
+
+            if (newMaintRoomId == Guid.Empty)
+                newMaintRoomId = rooms[0].Id;
+        }
+
+        if (currentSession != null)
+        {
+            currentQuota = Engine.GetUserQuota(currentSession.StudentOrStaffId, selectedDate);
+        }
+
+        bookings = Engine.GetBookings();
+        maintenanceReports = Engine.GetMaintenanceReports();
+    }
+
+    private void OnDateChanged(ChangeEventArgs e)
+    {
+        if (DateTime.TryParse(e.Value?.ToString(), out var dt))
+        {
+            selectedDate = dt.Date;
+            LoadAllData();
+        }
+    }
+
+    private void ResetFilters()
+    {
+        filterRoomType = "";
+        filterEquipment = "";
+        LoadAllData();
+    }
+
+    private void OnSelectedRoomChanged()
+    {
+        var selectedRoomObj = rooms.FirstOrDefault(r => r.Id == bookingFormRoomId);
+        if (selectedRoomObj != null && bookingAttendeesCount < selectedRoomObj.MinCapacity)
+        {
+            bookingAttendeesCount = selectedRoomObj.MinCapacity;
+        }
+    }
+
+    private void SelectRoomForBooking(RoomDto room, int? startHour)
+    {
+        bookingFormRoomId = room.Id;
+        bookingAttendeesCount = room.MinCapacity;
+        if (startHour.HasValue)
+            bookingStartHour = Math.Clamp(startHour.Value, 9, 16);
+    }
+
+    private void SubmitCreateBooking()
+    {
+        if (currentSession == null) return;
+
+        var start = selectedDate.Date.AddHours(bookingStartHour);
+        var end = start.AddHours(bookingDurationHours);
+
+        var result = Engine.CreateBooking(new CreateBookingRequest
+        {
+            RoomId = bookingFormRoomId,
+            HostStudentOrStaffId = currentSession.StudentOrStaffId,
+            HostFullName = currentSession.FullName,
+            Purpose = bookingPurpose,
+            StartTime = start,
+            EndTime = end,
+            ExpectedAttendees = bookingAttendeesCount
+        });
+
+        ShowFeedback(result.Success, result.Message);
+        if (result.Success)
+        {
+            activeTab = "mybookings";
+        }
+        LoadAllData();
+    }
+
+    private void CancelBooking(Guid bookingId)
+    {
+        var res = Engine.CancelBookingByUser(bookingId);
+        ShowFeedback(res.Success, res.Message);
+        LoadAllData();
+    }
+
+    private void SubmitMaintenanceReport()
+    {
+        var reporter = currentSession != null
+            ? $"{currentSession.StudentOrStaffId} ({currentSession.FullName})"
+            : "ผู้ใช้งาน";
+
+        var res = Engine.CreateMaintenanceReport(new CreateMaintenanceReportRequest
+        {
+            RoomId = newMaintRoomId,
+            EquipmentName = newMaintEquip,
+            ReportedBy = reporter,
+            Title = newMaintTitle,
+            Description = newMaintTitle
+        });
+        ShowFeedback(res.Success, res.Message);
+        LoadAllData();
+    }
+
+    private void ShowFeedback(bool success, string message)
+    {
+        feedbackSuccess = success;
+        feedbackMessage = message;
+    }
+
+    private static string GetStatusBadgeClass(BookingStatus status) => status switch
+    {
+        BookingStatus.Reserved => "bg-amber-100 text-amber-800 border border-amber-300",
+        BookingStatus.CheckedIn => "bg-indigo-100 text-indigo-800 border border-indigo-300",
+        BookingStatus.Completed => "bg-emerald-100 text-emerald-800 border border-emerald-300",
+        BookingStatus.AutoReleased => "bg-rose-100 text-rose-800 border border-rose-300",
+        BookingStatus.EmergencyOverride => "bg-purple-100 text-purple-800 border border-purple-300",
+        _ => "bg-slate-100 text-slate-700"
+    };
+
+    public void Dispose()
+    {
+        Engine.OnStateChanged -= HandleEngineStateChanged;
+    }
+}
+
