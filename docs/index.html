@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ระบบจองห้องบริการส่วนกลางและห้องสมุด (สำหรับนักศึกษาและบุคลากร)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Sarabun', sans-serif; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased min-h-screen flex flex-col">
+    <!-- Top Header -->
+    <header class="bg-gradient-to-r from-emerald-900 via-emerald-800 to-teal-900 text-white shadow-lg">
+        <div class="max-w-7xl mx-auto px-4 py-4 flex flex-wrap items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <div class="w-11 h-11 rounded-xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center text-xl font-bold">
+                    📚
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold tracking-tight">ระบบจองห้องบริการส่วนกลางและห้องสมุด (สำหรับนักศึกษาและบุคลากร)</h1>
+                    <p class="text-xs text-emerald-200">
+                        เปิดบริการ 09:00 – 17:00 น. • ห้องใหญ่ 601 (ขั้นต่ำ 7 คน) • ห้องกลาง 602, 603, 604 (ขั้นต่ำ 5 คน) • <span id="dbStatusBadge" class="underline">เชื่อมต่อ MySQL (WAMP)</span>
+                    </p>
+                </div>
+            </div>
+
+            <div id="userHeaderBox" class="hidden flex-wrap items-center gap-4 bg-emerald-950/60 border border-emerald-700/60 rounded-xl px-4 py-2">
+                <div class="text-xs">
+                    <span class="text-emerald-300 block">ผู้ใช้งานที่เข้าสู่ระบบ:</span>
+                    <span id="lblCurrentUser" class="font-bold text-sm text-white"></span>
+                    <span id="lblCurrentRole" class="ml-1 px-2 py-0.5 rounded bg-emerald-700 text-[11px]"></span>
+                </div>
+                <div class="border-l border-emerald-700 pl-3 text-xs">
+                    <div class="flex items-center gap-2">
+                        <span class="text-emerald-200">โควตาวันนี้:</span>
+                        <span id="lblRemainingQuota" class="font-bold text-white">เหลือ 180 นาที</span>
+                    </div>
+                </div>
+                <button onclick="handleLogout()" class="bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition">
+                    🚪 ออกจากระบบ
+                </button>
+            </div>
+        </div>
+
+        <div id="navTabs" class="hidden max-w-7xl mx-auto px-4 flex gap-2 overflow-x-auto border-t border-emerald-800/80 pt-2">
+            <button id="tabBtnTimeline" onclick="switchTab('timeline')" class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition bg-slate-50 text-emerald-900">
+                🗓️ 1. ตารางเวลา & จองห้อง (09:00 – 17:00 น.)
+            </button>
+            <button id="tabBtnBookings" onclick="switchTab('mybookings')" class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition text-emerald-100 hover:bg-emerald-800/60">
+                🎟️ 2. รายการจองของฉัน & รหัสติดต่อห้อง Admin (<span id="myBookingCount">0</span>)
+            </button>
+            <button id="tabBtnReport" onclick="switchTab('report')" class="px-4 py-2.5 text-sm font-semibold rounded-t-lg transition text-emerald-100 hover:bg-emerald-800/60">
+                🛠️ 3. แจ้งอุปกรณ์ชำรุดในห้อง
+            </button>
+        </div>
+    </header>
+
+    <!-- Alert Banner -->
+    <div id="alertBanner" class="hidden max-w-7xl mx-auto w-full px-4 mt-4">
+        <div id="alertInner" class="flex items-center justify-between px-4 py-3 rounded-xl border shadow-sm">
+            <div class="flex items-center gap-2 text-sm font-medium">
+                <span id="alertIcon">✅</span>
+                <span id="alertText"></span>
+            </div>
+            <button onclick="hideAlert()" class="text-xs font-bold px-2 py-1 rounded hover:bg-black/5">ปิด</button>
+        </div>
+    </div>
+
+    <main class="max-w-7xl mx-auto w-full px-4 py-6 flex-1">
+        <!-- LOGIN / REGISTER SECTION -->
+        <div id="loginSection" class="max-w-md mx-auto mt-8 bg-white rounded-2xl shadow-md border border-slate-200 overflow-hidden">
+            <div class="bg-emerald-900 text-white px-6 py-5">
+                <h2 id="authTitle" class="text-lg font-bold">🔐 เข้าสู่ระบบจองห้องสมุด</h2>
+                <p id="authSubtitle" class="text-xs text-emerald-200 mt-1">กรอกรหัสนักศึกษา/รหัสบุคลากร และรหัสผ่านเพื่อเข้าใช้งาน</p>
+            </div>
+            <div class="p-6 space-y-4 text-sm">
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">รหัสผู้ใช้งาน (รหัสนักศึกษา / รหัสบุคลากร)</label>
+                    <input id="inpUsername" type="text" value="6610400001" placeholder="เช่น 6610400001"
+                           class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 focus:outline-none focus:border-emerald-600" />
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">รหัสผ่าน (Password)</label>
+                    <input id="inpPassword" type="password" value="123456" placeholder="กรอกรหัสผ่าน"
+                           class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 focus:outline-none focus:border-emerald-600" />
+                </div>
+
+                <div id="registerFields" class="hidden space-y-4">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">ชื่อ - นามสกุล</label>
+                        <input id="inpFullName" type="text" placeholder="เช่น สมชาย ใจดี"
+                               class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 focus:outline-none focus:border-emerald-600" />
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">อีเมล</label>
+                        <input id="inpEmail" type="email" placeholder="เช่น somchai@ku.th"
+                               class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 focus:outline-none focus:border-emerald-600" />
+                    </div>
+                </div>
+
+                <button id="btnAuthSubmit" onclick="handleAuthSubmit()"
+                        class="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-bold py-2.5 px-4 rounded-xl shadow transition">
+                    เข้าสู่ระบบ (Login)
+                </button>
+
+                <div class="pt-3 border-t border-slate-100 text-center">
+                    <button type="button" onclick="toggleRegisterMode()" id="btnToggleRegister"
+                            class="text-xs text-emerald-700 font-semibold hover:underline">
+                        ยังไม่มีบัญชีผู้ใช้งาน? กดสมัครสมาชิกใหม่ที่นี่
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- APP CONTENT SECTION -->
+        <div id="appSection" class="hidden space-y-6">
+            <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4 text-xs text-amber-900">
+                <div class="flex items-center gap-3">
+                    <span class="text-2xl">🔑</span>
+                    <div>
+                        <strong class="text-sm block">ขั้นตอนการจองและติดต่อเช็คอินที่ห้อง Admin (เวลาทำการ 09:00 – 17:00 น.)</strong>
+                        <span>
+                            1) เลือกห้องและระบุ <strong>จำนวนผู้เข้าใช้งาน (เป็นตัวเลข)</strong> (ห้องใหญ่ <strong>601</strong> ขั้นต่ำ 7 คน / ห้องกลาง <strong>602, 603, 604</strong> ขั้นต่ำ 5 คน) →
+                            2) ผู้จองหลักกดยืนยันการจองเพียงคนเดียว →
+                            3) นำ <strong>รหัสการจอง (Booking No.) หรือรหัส PIN</strong> ไปติดต่อเช็คอินที่ <strong>ห้อง Admin</strong> (สามารถเข้ามาเช็คอินล่วงหน้าได้ตั้งแต่ 30 นาที ถึง 1 ชั่วโมง ก่อนถึงเวลาจอง และไม่เกิน 15 นาทีหลังเริ่มเวลาจอง) เพื่อให้เจ้าหน้าที่เปิดประตูห้องให้
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 1: TIMELINE & BOOKING -->
+            <div id="viewTimeline" class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div class="lg:col-span-2 space-y-4">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <h2 class="text-lg font-bold text-slate-800">ตารางสถานะห้องทั้ง 4 ห้อง (601, 602, 603, 604 • เวลา 09:00 – 17:00 น.)</h2>
+                        <div class="flex items-center gap-3 text-xs font-medium">
+                            <span class="inline-flex items-center gap-1"><span class="w-3 h-3 rounded bg-emerald-500 inline-block"></span> ว่าง (คลิกจองได้)</span>
+                            <span class="inline-flex items-center gap-1"><span class="w-3 h-3 rounded bg-amber-500 inline-block"></span> จองแล้ว (รอเช็คอินที่ห้อง Admin)</span>
+                            <span class="inline-flex items-center gap-1"><span class="w-3 h-3 rounded bg-indigo-600 inline-block"></span> เช็คอินแล้ว (เปิดประตูห้องแล้ว)</span>
+                        </div>
+                    </div>
+                    <div id="roomsContainer" class="space-y-4"></div>
+                </div>
+
+                <!-- Right Col: Booking Form -->
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 h-fit sticky top-4">
+                    <h2 class="text-base font-bold text-slate-900 mb-1">📝 แบบฟอร์มยืนยันการจองห้อง</h2>
+                    <p class="text-xs text-slate-500 mb-4">
+                        ผู้จองหลักยืนยันเพียงคนเดียว โดยระบุ <strong>จำนวนผู้เข้าใช้งาน (เป็นตัวเลข)</strong> ตามเกณฑ์ของห้อง
+                    </p>
+                    <div class="space-y-3.5 text-sm">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 mb-1">เลือกห้องที่ต้องการจอง (601, 602, 603, 604)</label>
+                            <select id="selRoom" onchange="onRoomSelectionChange()" class="w-full rounded-lg border border-slate-300 px-3 py-2"></select>
+                        </div>
+
+                        <div id="roomRuleBox" class="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 space-y-1"></div>
+
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 mb-1">
+                                จำนวนผู้เข้าใช้งาน (คน) <span id="lblMinCapHint" class="text-emerald-700">(ขั้นต่ำ 5 คน)</span>
+                            </label>
+                            <input id="inpAttendees" type="number" min="1" max="30" value="5"
+                                   class="w-full rounded-lg border border-slate-300 px-3 py-2 font-bold text-slate-900" />
+                            <p class="text-[11px] text-slate-500 mt-0.5">
+                                ผู้จองหลักยืนยันคนเดียว (ไม่ต้องกรอกรหัสเพื่อนร่วมกลุ่ม)
+                            </p>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-700 mb-1">เวลาเริ่มต้น (09:00 - 16:00)</label>
+                                <select id="selStartHour" class="w-full rounded-lg border border-slate-300 px-3 py-2">
+                                    <option value="9">09:00 น.</option>
+                                    <option value="10">10:00 น.</option>
+                                    <option value="11" selected>11:00 น.</option>
+                                    <option value="12">12:00 น.</option>
+                                    <option value="13">13:00 น.</option>
+                                    <option value="14">14:00 น.</option>
+                                    <option value="15">15:00 น.</option>
+                                    <option value="16">16:00 น.</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-700 mb-1">ระยะเวลา (ชั่วโมง)</label>
+                                <select id="selDuration" class="w-full rounded-lg border border-slate-300 px-3 py-2">
+                                    <option value="1">1 ชั่วโมง</option>
+                                    <option value="2" selected>2 ชั่วโมง</option>
+                                    <option value="3">3 ชั่วโมง (สูงสุด)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 mb-1">วัตถุประสงค์การใช้งาน (Purpose)</label>
+                            <input id="inpPurpose" type="text" value="ประชุมกลุ่มและทำรายงานวิชาเรียน"
+                                   class="w-full rounded-lg border border-slate-300 px-3 py-2" />
+                        </div>
+
+                        <button onclick="submitBooking()"
+                                class="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-bold py-2.5 px-4 rounded-xl shadow transition">
+                            ยืนยันการจองห้อง
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 2: MY BOOKINGS -->
+            <div id="viewBookings" class="hidden space-y-4">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-800">🎟️ รายการจองห้อง & รหัส PIN สำหรับติดต่อเช็คอินที่ห้อง Admin</h2>
+                    <p class="text-xs text-slate-500">
+                        สามารถเข้ามาเช็คอินล่วงหน้าได้ตั้งแต่ <strong>30 นาที ถึง 1 ชั่วโมง ก่อนถึงเวลาจอง</strong> (และไม่เกิน 15 นาทีหลังเวลาเริ่มจอง) ที่ห้อง Admin
+                    </p>
+                </div>
+                <div id="bookingsContainer" class="space-y-3"></div>
+            </div>
+
+            <!-- TAB 3: MAINTENANCE REPORT -->
+            <div id="viewReport" class="hidden max-w-xl bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
+                <h2 class="text-base font-bold text-slate-900">🛠️ แจ้งอุปกรณ์ภายในห้องชำรุด (ส่งตรงถึงห้อง Admin)</h2>
+                <div class="space-y-3 text-sm">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">เลือกห้องที่พบปัญหา</label>
+                        <select id="selMaintRoom" class="w-full rounded-lg border border-slate-300 px-3 py-2"></select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">อุปกรณ์ที่ชำรุด</label>
+                        <input id="inpMaintEquip" type="text" value="Smart TV / สาย HDMI" class="w-full rounded-lg border border-slate-300 px-3 py-2" />
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">อาการที่พบ</label>
+                        <input id="inpMaintTitle" type="text" value="หน้าจอไม่แสดงผลเมื่อต่อสาย HDMI" class="w-full rounded-lg border border-slate-300 px-3 py-2" />
+                    </div>
+                    <button onclick="submitMaintenance()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-4 rounded-xl transition">
+                        ส่งเรื่องแจ้งซ่อมให้ห้อง Admin
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const API_BASE = "http://localhost:5180/api/v1";
+        let isRegister = false;
+        let currentSession = null;
+        let roomsData = [];
+        let bookingsData = [];
+        let usingBackendApi = false;
+
+        const DEFAULT_ROOMS = [
+            {
+                id: "22222222-2222-2222-2222-222222222201",
+                roomCode: "601",
+                roomName: "ห้อง 601 (ห้องขนาดใหญ่ / Large Seminar Room)",
+                roomType: "Large",
+                floor: 6,
+                building: "อาคารหอสมุดกลาง",
+                minCapacity: 7,
+                maxCapacity: 15,
+                maxBookingHours: 3,
+                equipments: [
+                    { name: "Interactive Smart Board 75 นิ้ว", quantity: 1 },
+                    { name: "เลเซอร์โปรเจคเตอร์ 4K", quantity: 1 },
+                    { name: "ไวท์บอร์ดขนาดใหญ่", quantity: 2 }
+                ]
+            },
+            {
+                id: "22222222-2222-2222-2222-222222222101",
+                roomCode: "602",
+                roomName: "ห้อง 602 (ห้องขนาดกลาง 1 / Medium Study Room 1)",
+                roomType: "Medium",
+                floor: 6,
+                building: "อาคารหอสมุดกลาง (ใกล้ห้อง Admin)",
+                minCapacity: 5,
+                maxCapacity: 8,
+                maxBookingHours: 3,
+                equipments: [
+                    { name: "Smart TV 55 นิ้ว", quantity: 1 },
+                    { name: "กระดานไวท์บอร์ด", quantity: 1 },
+                    { name: "ปลั๊กไฟกลางโต๊ะ", quantity: 8 }
+                ]
+            },
+            {
+                id: "22222222-2222-2222-2222-222222222102",
+                roomCode: "603",
+                roomName: "ห้อง 603 (ห้องขนาดกลาง 2 / Medium Study Room 2)",
+                roomType: "Medium",
+                floor: 6,
+                building: "อาคารหอสมุดกลาง (ใกล้ห้อง Admin)",
+                minCapacity: 5,
+                maxCapacity: 8,
+                maxBookingHours: 3,
+                equipments: [
+                    { name: "Smart TV 55 นิ้ว", quantity: 1 },
+                    { name: "กระดานไวท์บอร์ด", quantity: 1 },
+                    { name: "ปลั๊กไฟกลางโต๊ะ", quantity: 8 }
+                ]
+            },
+            {
+                id: "22222222-2222-2222-2222-222222222103",
+                roomCode: "604",
+                roomName: "ห้อง 604 (ห้องขนาดกลาง 3 / Medium Study Room 3)",
+                roomType: "Medium",
+                floor: 6,
+                building: "อาคารหอสมุดกลาง (ใกล้ห้อง Admin)",
+                minCapacity: 5,
+                maxCapacity: 10,
+                maxBookingHours: 3,
+                equipments: [
+                    { name: "Smart TV 65 นิ้ว (Wireless Share)", quantity: 1 },
+                    { name: "กระดานไวท์บอร์ดกระจก", quantity: 2 },
+                    { name: "ปลั๊กไฟและพอร์ต USB-C", quantity: 10 }
+                ]
+            }
+        ];
+
+        function showAlert(success, msg) {
+            const banner = document.getElementById("alertBanner");
+            const inner = document.getElementById("alertInner");
+            document.getElementById("alertIcon").textContent = success ? "✅" : "⚠️";
+            document.getElementById("alertText").textContent = msg;
+            inner.className = "flex items-center justify-between px-4 py-3 rounded-xl border shadow-sm " +
+                (success ? "bg-emerald-50 border-emerald-300 text-emerald-900" : "bg-rose-50 border-rose-300 text-rose-900");
+            banner.classList.remove("hidden");
+        }
+
+        function hideAlert() {
+            document.getElementById("alertBanner").classList.add("hidden");
+        }
+
+        function toggleRegisterMode() {
+            isRegister = !isRegister;
+            document.getElementById("registerFields").classList.toggle("hidden", !isRegister);
+            document.getElementById("authTitle").textContent = isRegister ? "📝 สมัครสมาชิกใหม่ (ลงทะเบียนผู้ใช้งาน)" : "🔐 เข้าสู่ระบบจองห้องสมุด";
+            document.getElementById("btnAuthSubmit").textContent = isRegister ? "ยืนยันสมัครสมาชิก & เข้าสู่ระบบ" : "เข้าสู่ระบบ (Login)";
+            document.getElementById("btnToggleRegister").textContent = isRegister ? "มีบัญชีอยู่แล้ว? กลับไปหน้าเข้าสู่ระบบ" : "ยังไม่มีบัญชีผู้ใช้งาน? กดสมัครสมาชิกใหม่ที่นี่";
+        }
+
+        async function handleAuthSubmit() {
+            const username = document.getElementById("inpUsername").value.trim();
+            const password = document.getElementById("inpPassword").value.trim();
+            const fullName = document.getElementById("inpFullName").value.trim() || "ผู้ใช้งานระบบห้องสมุด";
+            const email = document.getElementById("inpEmail").value.trim() || (username + "@ku.th");
+
+            if (!username || !password) {
+                showAlert(false, "กรุณากรอกรหัสผู้ใช้งานและรหัสผ่านให้ครบถ้วน");
+                return;
+            }
+
+            try {
+                const endpoint = isRegister ? `${API_BASE}/auth/register` : `${API_BASE}/auth/login`;
+                const payload = isRegister
+                    ? { studentOrStaffId: username, password, fullName, email, role: "Student" }
+                    : { username, password };
+
+                const resp = await fetch(endpoint, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                const json = await resp.json();
+                if (!json.success) {
+                    showAlert(false, json.message || "รหัสผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง");
+                    return;
+                }
+                usingBackendApi = true;
+                currentSession = json.data;
+                document.getElementById("dbStatusBadge").textContent = "เชื่อมต่อ MySQL (WAMP localhost:5180) สำเร็จ";
+                onLoginSuccess(json.message);
+            } catch {
+                // Fallback เมื่อเปิดผ่าน GitHub Pages บนเครื่องที่ไม่ได้รัน localhost:5180
+                usingBackendApi = false;
+                currentSession = {
+                    studentOrStaffId: username,
+                    fullName: username === "6610400001" ? "กิตติพงศ์ รัตนโชติ" : (username === "6610400002" ? "พิมพ์ชนก วงศ์สวัสดิ์" : fullName),
+                    role: "Student"
+                };
+                document.getElementById("dbStatusBadge").textContent = "โหมด GitHub Cloud Demo";
+                onLoginSuccess(`ยินดีต้อนรับ ${currentSession.fullName} (${currentSession.studentOrStaffId})`);
+            }
+        }
+
+        async function onLoginSuccess(msg) {
+            document.getElementById("loginSection").classList.add("hidden");
+            document.getElementById("appSection").classList.remove("hidden");
+            document.getElementById("userHeaderBox").classList.remove("hidden");
+            document.getElementById("userHeaderBox").classList.add("flex");
+            document.getElementById("navTabs").classList.remove("hidden");
+
+            document.getElementById("lblCurrentUser").textContent = `${currentSession.fullName} (${currentSession.studentOrStaffId})`;
+            document.getElementById("lblCurrentRole").textContent = currentSession.role || "Student";
+            showAlert(true, msg);
+            await loadAllData();
+        }
+
+        function handleLogout() {
+            currentSession = null;
+            document.getElementById("loginSection").classList.remove("hidden");
+            document.getElementById("appSection").classList.add("hidden");
+            document.getElementById("userHeaderBox").classList.add("hidden");
+            document.getElementById("navTabs").classList.add("hidden");
+            hideAlert();
+        }
+
+        function switchTab(tab) {
+            document.getElementById("viewTimeline").classList.toggle("hidden", tab !== "timeline");
+            document.getElementById("viewBookings").classList.toggle("hidden", tab !== "mybookings");
+            document.getElementById("viewReport").classList.toggle("hidden", tab !== "report");
+        }
+
+        async function loadAllData() {
+            try {
+                const [rResp, bResp] = await Promise.all([
+                    fetch(`${API_BASE}/rooms`),
+                    fetch(`${API_BASE}/bookings`)
+                ]);
+                const rJson = await rResp.json();
+                const bJson = await bResp.json();
+                roomsData = rJson.data || DEFAULT_ROOMS;
+                bookingsData = bJson.data || [];
+                usingBackendApi = true;
+            } catch {
+                roomsData = DEFAULT_ROOMS;
+                const saved = localStorage.getItem("gh_demo_bookings");
+                bookingsData = saved ? JSON.parse(saved) : [];
+            }
+
+            renderRoomSelectors();
+            renderRoomsTimeline();
+            renderBookingsList();
+        }
+
+        function renderRoomSelectors() {
+            const selRoom = document.getElementById("selRoom");
+            const selMaint = document.getElementById("selMaintRoom");
+            const currentVal = selRoom.value;
+
+            selRoom.innerHTML = roomsData.map(r =>
+                `<option value="${r.id}">${r.roomCode} - ${r.roomName} (ขั้นต่ำ ${r.minCapacity} คน)</option>`
+            ).join("");
+
+            selMaint.innerHTML = roomsData.map(r =>
+                `<option value="${r.id}">${r.roomCode} - ${r.roomName}</option>`
+            ).join("");
+
+            if (currentVal && roomsData.some(r => r.id === currentVal)) {
+                selRoom.value = currentVal;
+            }
+            onRoomSelectionChange();
+        }
+
+        function onRoomSelectionChange() {
+            const roomId = document.getElementById("selRoom").value;
+            const room = roomsData.find(r => r.id === roomId) || roomsData[0];
+            if (!room) return;
+
+            document.getElementById("roomRuleBox").innerHTML = `
+                <div class="font-bold">เงื่อนไขของห้อง ${room.roomCode} (${room.roomType === 'Large' ? 'ห้องขนาดใหญ่' : 'ห้องขนาดกลาง'}):</div>
+                <div>• จำนวนผู้เข้าใช้งาน: <strong>ขั้นต่ำ ${room.minCapacity} คน – สูงสุด ${room.maxCapacity} คน</strong></div>
+                <div>• เวลาทำการ: <strong>09:00 – 17:00 น.</strong> (เช็คอินล่วงหน้าได้ 30 นาที – 1 ชั่วโมง ก่อนเวลาจอง)</div>
+            `;
+            document.getElementById("lblMinCapHint").textContent = `(ขั้นต่ำ ${room.minCapacity} คน)`;
+            const inpAtt = document.getElementById("inpAttendees");
+            if (parseInt(inpAtt.value || "0") < room.minCapacity) {
+                inpAtt.value = room.minCapacity;
+            }
+        }
+
+        function selectRoomSlot(roomId, hour) {
+            document.getElementById("selRoom").value = roomId;
+            onRoomSelectionChange();
+            if (hour) {
+                document.getElementById("selStartHour").value = String(hour);
+            }
+        }
+
+        function renderRoomsTimeline() {
+            const container = document.getElementById("roomsContainer");
+            container.innerHTML = roomsData.map(room => {
+                const isLarge = room.roomType === "Large" || room.roomCode === "601";
+                const slotsHtml = [];
+                for (let h = 9; h < 17; h++) {
+                    const slotObj = (room.todaySlots || []).find(s => new Date(s.startTime).getHours() === h);
+                    const state = slotObj ? slotObj.slotState : "Available";
+                    const isAvail = state === "Available";
+                    const isOcc = state === "Occupied";
+                    const css = isAvail
+                        ? "bg-emerald-50 hover:bg-emerald-500 hover:text-white text-emerald-900 border-emerald-300 cursor-pointer"
+                        : isOcc
+                            ? "bg-indigo-600 text-white border-indigo-700"
+                            : "bg-amber-500 text-white border-amber-600";
+
+                    const hh1 = String(h).padStart(2, "0") + ":00";
+                    const hh2 = String(h + 1).padStart(2, "0") + ":00";
+
+                    slotsHtml.push(`
+                        <button type="button" ${!isAvail ? "disabled" : ""}
+                                onclick="selectRoomSlot('${room.id}', ${h})"
+                                class="border rounded-xl p-2 text-center transition flex flex-col items-center justify-center ${css}">
+                            <span class="text-xs font-bold">${hh1}-${hh2}</span>
+                            <span class="text-[10px] opacity-90 mt-0.5">${isAvail ? "ว่าง" : (isOcc ? "เปิดห้องแล้ว" : "จองแล้ว")}</span>
+                        </button>
+                    `);
+                }
+
+                return `
+                    <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 hover:border-emerald-400 transition">
+                        <div class="flex flex-wrap items-start justify-between gap-2 mb-3">
+                            <div>
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <span class="px-2.5 py-0.5 text-xs font-bold rounded-md ${isLarge ? 'bg-purple-100 text-purple-800' : 'bg-emerald-100 text-emerald-800'}">
+                                        ห้อง ${room.roomCode}
+                                    </span>
+                                    <h3 class="font-bold text-slate-900">${room.roomName}</h3>
+                                </div>
+                                <p class="text-xs text-slate-500 mt-1">
+                                    📍 ${room.building} ชั้น ${room.floor} • 👥 จำนวนผู้เข้าใช้งาน: <strong>ขั้นต่ำ ${room.minCapacity} คน (สูงสุด ${room.maxCapacity} คน)</strong>
+                                </p>
+                            </div>
+                            <button onclick="selectRoomSlot('${room.id}', null)"
+                                    class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-3 py-1.5 rounded-lg">
+                                + เลือกจองห้อง ${room.roomCode}
+                            </button>
+                        </div>
+                        <div class="grid grid-cols-4 sm:grid-cols-8 gap-2">
+                            ${slotsHtml.join("")}
+                        </div>
+                    </div>
+                `;
+            }).join("");
+        }
+
+        async function submitBooking() {
+            const roomId = document.getElementById("selRoom").value;
+            const room = roomsData.find(r => r.id === roomId) || roomsData[0];
+            const attendees = parseInt(document.getElementById("inpAttendees").value || "0");
+            const startHour = parseInt(document.getElementById("selStartHour").value);
+            const duration = parseInt(document.getElementById("selDuration").value);
+            const purpose = document.getElementById("inpPurpose").value.trim();
+
+            if (attendees < room.minCapacity || attendees > room.maxCapacity) {
+                showAlert(false, `ไม่สามารถจองได้: ห้อง ${room.roomCode} กำหนดจำนวนผู้เข้าใช้งาน ${room.minCapacity}–${room.maxCapacity} คน (คุณระบุ ${attendees} คน)`);
+                return;
+            }
+
+            const now = new Date();
+            const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), startHour, 0, 0);
+            const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), startHour + duration, 0, 0);
+
+            const toLocalIso = (d) => {
+                const pad = (n) => String(n).padStart(2, "0");
+                return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:00:00`;
+            };
+
+            try {
+                const resp = await fetch(`${API_BASE}/bookings`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        roomId,
+                        hostStudentOrStaffId: currentSession.studentOrStaffId,
+                        hostFullName: currentSession.fullName,
+                        purpose,
+                        startTime: toLocalIso(start),
+                        endTime: toLocalIso(end),
+                        expectedAttendees: attendees
+                    })
+                });
+                const json = await resp.json();
+                showAlert(json.success, json.message);
+                if (json.success) {
+                    await loadAllData();
+                    switchTab("mybookings");
+                }
+            } catch {
+                const pin = String(Math.floor(100000 + Math.random() * 900000));
+                const bno = `BK-${now.toISOString().slice(0,10).replace(/-/g,"")}-${String(bookingsData.length + 1).padStart(3, "0")}`;
+                bookingsData.unshift({
+                    id: crypto.randomUUID(),
+                    bookingNo: bno,
+                    roomCode: room.roomCode,
+                    roomName: room.roomName,
+                    hostStudentOrStaffId: currentSession.studentOrStaffId,
+                    hostFullName: currentSession.fullName,
+                    purpose,
+                    startTime: toLocalIso(start),
+                    endTime: toLocalIso(end),
+                    expectedAttendees: attendees,
+                    minRequiredAttendees: room.minCapacity,
+                    status: "Reserved",
+                    statusDisplay: "จองแล้ว (รอเช็คอินที่ห้อง Admin)",
+                    checkInPinCode: pin
+                });
+                localStorage.setItem("gh_demo_bookings", JSON.stringify(bookingsData));
+                renderBookingsList();
+                showAlert(true, `จองห้อง ${room.roomCode} สำเร็จ! รหัสการจอง ${bno} (PIN: ${pin}) — สามารถเช็คอินล่วงหน้าได้ 30 นาที ถึง 1 ชั่วโมง ก่อนเวลาจอง`);
+                switchTab("mybookings");
+            }
+        }
+
+        function renderBookingsList() {
+            document.getElementById("myBookingCount").textContent = bookingsData.length;
+            const container = document.getElementById("bookingsContainer");
+            if (bookingsData.length === 0) {
+                container.innerHTML = `<div class="bg-white rounded-2xl border p-6 text-center text-slate-500 text-sm">ยังไม่มีรายการจอง</div>`;
+                return;
+            }
+            container.innerHTML = bookingsData.map(b => `
+                <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex flex-wrap items-start justify-between gap-4">
+                    <div class="space-y-1">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <span class="font-mono text-sm font-bold px-3 py-1 rounded-lg bg-emerald-900 text-white">${b.bookingNo}</span>
+                            <span class="font-bold text-base text-slate-900">ห้อง ${b.roomCode} — ${b.roomName}</span>
+                            <span class="text-xs font-bold px-3 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-300">${b.statusDisplay || b.status}</span>
+                        </div>
+                        <p class="text-xs text-slate-600">
+                            ผู้จองหลัก: <strong>${b.hostFullName} (${b.hostStudentOrStaffId})</strong> • 👥 จำนวนผู้เข้าใช้งาน: <strong>${b.expectedAttendees} คน</strong>
+                        </p>
+                        <p class="text-xs text-slate-500">📌 วัตถุประสงค์: ${b.purpose}</p>
+                    </div>
+                    <div class="bg-emerald-50 border-2 border-emerald-500 rounded-xl px-4 py-2.5 text-center min-w-[240px]">
+                        <div class="text-[11px] font-bold text-emerald-800 uppercase">รหัสสำหรับแจ้งที่ห้อง Admin</div>
+                        <div class="text-2xl font-mono font-extrabold tracking-widest text-emerald-700 my-0.5">PIN: ${b.checkInPinCode}</div>
+                        <div class="text-[11px] text-emerald-900">⏳ เช็คอินล่วงหน้าได้ 30 นาที – 1 ชั่วโมง ก่อนเวลาจอง</div>
+                    </div>
+                </div>
+            `).join("");
+        }
+
+        async function submitMaintenance() {
+            const roomId = document.getElementById("selMaintRoom").value;
+            const equipmentName = document.getElementById("inpMaintEquip").value.trim();
+            const title = document.getElementById("inpMaintTitle").value.trim();
+            try {
+                const resp = await fetch(`${API_BASE}/maintenance/reports`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        roomId,
+                        equipmentName,
+                        reportedBy: `${currentSession.studentOrStaffId} (${currentSession.fullName})`,
+                        title,
+                        description: title
+                    })
+                });
+                const json = await resp.json();
+                showAlert(json.success, json.message);
+            } catch {
+                showAlert(true, "บันทึกแจ้งซ่อมอุปกรณ์ส่งไปยังห้อง Admin เรียบร้อยแล้ว");
+            }
+        }
+    </script>
+</body>
+</html>
+

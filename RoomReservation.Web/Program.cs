@@ -10,6 +10,14 @@ builder.WebHost.UseUrls("http://localhost:5180");
 builder.Services.AddSingleton<ReservationEngineService>();
 builder.Services.AddHostedService<AutoReleaseSchedulerService>();
 
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+        policy.AllowAnyOrigin()
+              .AllowAnyMethod()
+              .AllowAnyHeader());
+});
+
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
@@ -22,6 +30,7 @@ builder.Services.AddRazorComponents()
 
 var app = builder.Build();
 
+app.UseCors();
 app.UseStaticFiles();
 app.UseAntiforgery();
 
